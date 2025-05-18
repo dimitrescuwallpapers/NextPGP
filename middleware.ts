@@ -4,15 +4,48 @@ import { jwtVerify } from "jose";
 
 const vaultOnlyRoutes = ["/cloud-backup", "/cloud-manage"];
 const authRoutes = ["/login"];
+const onlineRoutes = ["/create-vault", "/vault", "/login", "/cloud-backup", "/cloud-manage"];
 
 export default async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+
+  // Redirect to /offline if the user is offline and tries to access online routes
+  if (pathname === '/offline') {
+    try {
+      const online = await fetch('https://8.8.8.8', {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(5000)
+      });
+      
+      if (online.ok) {
+        return NextResponse.redirect(new URL("/", request.nextUrl.origin));
+      }
+    } catch {
+      return NextResponse.next();
+    }
+  }
+
+  // Check internet availabilty for online routes
+  if (onlineRoutes.some(route => pathname.startsWith(route))) {
+    try {
+      const online = await fetch('https://8.8.8.8', {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(5000)
+      });
+      
+      if (!online.ok) {
+        return NextResponse.redirect(new URL("/offline", request.nextUrl.origin));
+      }
+    } catch {
+      return NextResponse.redirect(new URL("/offline", request.nextUrl.origin));
+    }
+  }
+
   const session = await getToken({
     req: request,
     secret: process.env.AUTH_SECRET,
     secureCookie: process.env.NODE_ENV === "production",
   });
-
-  const pathname = request.nextUrl.pathname;
 
   // Allow unauthenticated access to login
   if (authRoutes.some((route) => pathname.startsWith(route))) {
@@ -103,5 +136,6 @@ export const config = {
     "/login",
     "/cloud-backup",
     "/cloud-manage",
+    "/offline",
   ],
 };
